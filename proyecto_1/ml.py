@@ -1,11 +1,8 @@
-import json
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import GridSearchCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
 from sklearn.exceptions import ConvergenceWarning, FitFailedWarning
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_curve, roc_auc_score
 
@@ -32,10 +29,27 @@ def get_metrics(y_test, y_pred, y_pred_proba):
     return accuracy, report_dict, report, cm, fpr, tpr, auc
 
 
-def fit_and_predict(model, x_train, x_test, y_train, y_test):
-    model.fit(x_train, y_train)
+def build_model(X_train, y_train, classifier, param_grid):
+    # Hyperparameter sweep
+    grid_search = GridSearchCV(classifier(), param_grid, cv=5, n_jobs=-1)
 
-    y_pred = model.predict(x_test)
+    # Suppress warnings for convergence, fit failed or invalid solver for current algorithm
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
+        warnings.filterwarnings("ignore", category=FitFailedWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
+
+        grid_search.fit(X_train, y_train)
+
+    best_params = grid_search.best_params_
+
+    return classifier(**best_params)
+
+
+def fit_and_predict(model, X_train, X_test, y_train, y_test):
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
 
     return (classification_report(y_test, y_pred, output_dict=True),
             classification_report(y_test, y_pred),
@@ -62,6 +76,14 @@ def plot_confusion_matrix(matrix, cmap):
     plt.show()
 
 
+def print_params(model, param_grid):
+    filtered_params = filter_params(model.get_params(), param_grid)
+
+    print("\n- Model parameters:")
+    for param, value in filtered_params.items():
+        print(f"  - {param}: {value}")
+
+
 def print_avg_metrics(full_metrics):
     accuracy = np.mean([metric['accuracy'] for metric in full_metrics])
     precision = np.mean([metric['macro avg']['precision'] for metric in full_metrics])
@@ -79,46 +101,3 @@ def filter_params(params, param_grid):
         param_keys.update(grid.keys())
 
     return {key: params[key] for key in param_keys if key in params}
-
-def build_log_reg_model(x_train, y_train, param_grid):
-    # Hyperparameter sweep
-    logreg = LogisticRegression()
-    grid_search = GridSearchCV(logreg, param_grid, cv=5, n_jobs=-1)
-
-    # Suppress warnings for convergence, fit failed or invalid solver for current algorithm
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=ConvergenceWarning)
-        warnings.filterwarnings("ignore", category=FitFailedWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-
-        grid_search.fit(x_train, y_train)
-
-    best_params = grid_search.best_params_
-
-    return LogisticRegression(**best_params)
-
-
-def build_lin_reg_model(x_train, y_train):
-    pass
-
-
-def build_knn_model(x_train, y_train):
-    pass
-
-
-def build_nn_model(x_train, y_train, param_grid):
-    # Hyperparameter sweep
-    mlp = MLPClassifier()
-    grid_search = GridSearchCV(mlp, param_grid, cv=5, n_jobs=-1)
-
-    # Suppress warnings for convergence, fit failed or invalid solver for current algorithm
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=ConvergenceWarning)
-        warnings.filterwarnings("ignore", category=FitFailedWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-
-        grid_search.fit(x_train, y_train)
-
-    best_params = grid_search.best_params_
-
-    return MLPClassifier(**best_params)
