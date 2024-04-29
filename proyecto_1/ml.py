@@ -7,7 +7,29 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.exceptions import ConvergenceWarning, FitFailedWarning
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_curve, roc_auc_score
+
+def fit_predict(model, x_train, x_test, y_train):
+    model.fit(x_train, y_train)
+
+    y_pred = model.predict(x_test)
+
+    # Get predicted probabilities for class 1 (positive class)
+    y_pred_proba = model.predict_proba(x_test)[:, 1]
+
+    return y_pred, y_pred_proba
+
+def get_metrics(y_test, y_pred, y_pred_proba):
+    accuracy = accuracy_score(y_test, y_pred)
+    report_dict = classification_report(y_test, y_pred, output_dict=True)
+    report = classification_report(y_test, y_pred)
+    cm = confusion_matrix(y_test, y_pred).ravel()
+
+    fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+
+    # Calculate AUC
+    auc = roc_auc_score(y_test, y_pred_proba)
+    return accuracy, report_dict, report, cm, fpr, tpr, auc
 
 
 def fit_and_predict(model, x_train, x_test, y_train, y_test):
