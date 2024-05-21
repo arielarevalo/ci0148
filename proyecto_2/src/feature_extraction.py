@@ -50,8 +50,8 @@ def lbp(src_dir, dst_dir, num_points=8, radius=1):
         # Process images and masks within the subdirectory
         _process_images(os.path.join(src_dir, subdir, "images"),
                         os.path.join(dst_subdir, "images"), num_points, radius)
-        _process_images(os.path.join(src_dir, subdir, "masks"),
-                        os.path.join(dst_subdir, "masks"), num_points, radius)
+        # _process_images(os.path.join(src_dir, subdir, "masks"),
+        #                 os.path.join(dst_subdir, "masks"), num_points, radius)
 
 
 def _extract_lbp(image_path, num_points=8, radius=1):
@@ -93,6 +93,7 @@ def _process_images(src_img_dir, dst_img_dir, num_points=8, radius=1):
         # Get image and mask paths
         image_path = os.path.join(src_img_dir, filename)
         base_filename, _ = os.path.splitext(filename)
+        os.makedirs(dst_img_dir, exist_ok=True)
 
         # Extract LBP for image
         if os.path.isfile(image_path):
@@ -174,11 +175,9 @@ def _filter_images(src_img_dir, dst_img_dir, d=9, sigmaColor=75, sigmaSpace=75):
         # Get image and mask paths
         image_path = os.path.join(src_img_dir, filename)
         base_filename, _ = os.path.splitext(filename)
-        # dst_img_dir = os.path.abspath(dst_img_dir)
         os.makedirs(dst_img_dir, exist_ok=True)
 
         # Extract LBP for image
         if os.path.isfile(image_path):
             filtered_image = _filter_image(image_path, d, sigmaColor, sigmaSpace)
             result = cv2.imwrite(os.path.join(dst_img_dir, f"{base_filename}.png"), filtered_image)
-            print(os.path.join(dst_img_dir, f"{base_filename}.png -> "), result, type(filtered_image))
