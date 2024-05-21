@@ -164,6 +164,8 @@ cython_debug/
 !proyecto_2/data/raw/.dummy
 !proyecto_2/data/lbp/.dummy
 !proyecto_2/data/bf/.dummy
+!proyecto_2/images/.dummy
 proyecto_2/data/raw
 proyecto_2/data/lbp
 proyecto_2/data/bf
+proyecto_2/images
