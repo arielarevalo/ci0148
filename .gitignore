@@ -162,3 +162,5 @@ cython_debug/
 #.idea/
 
 proyecto_2/images/*/**
+proyecto_2/data/*/**
+!proyecto_2/data/*/.keep
