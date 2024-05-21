@@ -161,9 +161,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-!proyecto_2/data/raw/.dummy
-!proyecto_2/data/lbp/.dummy
-!proyecto_2/data/bf/.dummy
 proyecto_2/data/raw
 proyecto_2/data/lbp
 proyecto_2/data/bf
+proyecto_2/images
+!proyecto_2/data/raw/.dummy
+!proyecto_2/data/lbp/.dummy
+!proyecto_2/data/bf/.dummy
