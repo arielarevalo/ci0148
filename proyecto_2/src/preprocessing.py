@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import shutil
+import torch
 import numpy as np
 import cv2
 
@@ -72,8 +73,8 @@ def build_training_data(data_dir, mapping_file, output_dir, image_size):
     labels = np.array(labels)
 
     output_path.mkdir(parents=True, exist_ok=True)
-    np.save(output_path / 'features.npy', features)
-    np.save(output_path / 'labels.npy', labels)
+    torch.save(torch.tensor(features), output_path / 'features.pth')
+    torch.save(torch.tensor(labels), output_path / 'labels.pth')
 
 
 def __images_to_features(image_dir, image_size):
