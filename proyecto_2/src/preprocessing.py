@@ -36,9 +36,7 @@ class BfDescriptor:
         self.sigma_space = sigma_space
 
     def describe(self, image):
-        filtered_images = cv2.bilateralFilter(image, d=self.d, sigmaColor=self.sigma_color, sigmaSpace=self.sigma_space)
-        normalized_images = filtered_images / 255.0
-        return normalized_images
+        return cv2.bilateralFilter(image, d=self.d, sigmaColor=self.sigma_color, sigmaSpace=self.sigma_space)
 
 
 def unpack_images(image_dir):
@@ -84,6 +82,8 @@ def build_training_data(image_dir, feature_dir, mapping_file, image_size):
     feature_path = Path(feature_dir)
     label_map = load_label_map(mapping_file)
 
+    feature_path.mkdir(parents=True, exist_ok=True)
+
     features = []
     labels = []
     num_classes = len(label_map)
@@ -100,7 +100,7 @@ def build_training_data(image_dir, feature_dir, mapping_file, image_size):
 
             # Create one-hot encoded labels for the current class and append them to the labels list
             num_samples = len(class_features)
-            class_labels = np.zeros((num_samples, num_classes))
+            class_labels = np.zeros((num_samples, num_classes), dtype=np.uint8)
             class_labels[:, class_idx] = 1
             labels.extend(class_labels)
 
@@ -110,9 +110,12 @@ def build_training_data(image_dir, feature_dir, mapping_file, image_size):
     features = np.array(features)
     labels = np.array(labels)
 
+    print(f"Saved features with type {features.dtype} and shape {features.shape}")
+    print(f"Saved labels with type {labels.dtype} and shape {labels.shape}")
+
     feature_path.mkdir(parents=True, exist_ok=True)
-    torch.save(torch.tensor(features), feature_path / 'features.pth')
-    torch.save(torch.tensor(labels), feature_path / 'labels.pth')
+    np.save(feature_path / 'features.npy', features)
+    np.save(feature_path / 'labels.npy', labels)
 
 
 def build_lbp(raw_dir, lbp_dir, num_points=8, radius=1):
@@ -144,20 +147,23 @@ def __images_to_features(image_dir, image_size):
 def __image_to_feature_vector(image_path, image_size):
     image_array = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     resized_image_array = cv2.resize(image_array, (image_size, image_size))
-    normalized_image_array = resized_image_array / 255.0  # Normalize to [0, 1]
-    return normalized_image_array
+    return resized_image_array
 
 
 def __apply_descriptor(raw_dir, output_dir, descriptor):
     raw_path = Path(raw_dir)
     output_path = Path(output_dir)
 
-    shutil.copy(raw_path / 'labels.pth', output_path / 'labels.pth')
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    features = torch.load(raw_path / 'features.pth')
-    images = (features.numpy() * 255).astype(np.uint8)
+    shutil.copy(raw_path / 'labels.npy', output_path / 'labels.npy')
 
-    preprocessed_images = [descriptor.describe(image) for image in images]
-    preprocessed_images = np.array(preprocessed_images) / 255.0
+    features = np.load(raw_path / 'features.npy')
 
-    torch.save(torch.tensor(preprocessed_images), output_path / 'features.pth')
+    preprocessed_images = [descriptor.describe(image) for image in
+                           tqdm(features, desc=f"Applying {descriptor.__class__.__name__} to raw data")]
+    preprocessed_images = np.array(preprocessed_images)
+
+    print(f"Saved features with type {preprocessed_images.dtype} and shape {preprocessed_images.shape}")
+
+    np.save(output_path / 'features.npy', preprocessed_images)
