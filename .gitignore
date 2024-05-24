@@ -165,3 +165,4 @@ proyecto_2/images/*/**
 proyecto_2/data/*/**
 !proyecto_2/data/*/.keep
 proyecto_2/wandb/
+proyecto_2/models/
