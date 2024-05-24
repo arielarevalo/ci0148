@@ -1,10 +1,12 @@
-from pathlib import Path
+import gc
 import cv2
 import json
 import shutil
 import torch
 import numpy as np
+from pathlib import Path
 from skimage import feature
+from tqdm import tqdm
 
 __all__ = ['unpack_images', 'build_label_map', 'load_label_map', 'build_training_data', 'build_lbp', 'build_bf']
 
@@ -98,9 +100,12 @@ def build_training_data(image_dir, feature_dir, mapping_file, image_size):
 
             # Create one-hot encoded labels for the current class and append them to the labels list
             num_samples = len(class_features)
-            label = np.zeros((num_samples, num_classes))
-            label[:, class_idx] = 1
-            labels.extend(label)
+            class_labels = np.zeros((num_samples, num_classes))
+            class_labels[:, class_idx] = 1
+            labels.extend(class_labels)
+
+            del class_features, class_labels
+            gc.collect()
 
     features = np.array(features)
     labels = np.array(labels)
@@ -124,7 +129,8 @@ def __images_to_features(image_dir, image_size):
     image_path = Path(image_dir)
     vectors = []
 
-    for file_path in image_path.iterdir():
+    file_paths = list(image_path.iterdir())
+    for file_path in tqdm(file_paths, desc=f"Loading from {image_dir}"):
         if file_path.suffix.lower() in ('.png', '.jpg', '.jpeg'):
             vector = __image_to_feature_vector(file_path, image_size)
             vectors.append(vector)
