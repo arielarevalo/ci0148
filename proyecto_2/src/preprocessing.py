@@ -152,6 +152,6 @@ def __apply_descriptor(raw_dir, output_dir, descriptor):
     images = (features.numpy() * 255).astype(np.uint8)
 
     preprocessed_images = [descriptor.describe(image) for image in images]
-    preprocessed_images = np.array(preprocessed_images)
+    preprocessed_images = np.array(preprocessed_images) / 255.0
 
     torch.save(torch.tensor(preprocessed_images), output_path / 'features.pth')
