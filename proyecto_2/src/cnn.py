@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from torchvision import models, datasets, transforms
 from torchvision.models import ResNet50_Weights
 from torch.utils.data import DataLoader
@@ -36,11 +35,13 @@ class CNN_Model:
     )
     return model.to(self.device)
 
-  def train(self, train_loader, val_loader, epochs=20, patience=3, learning_rate=0.001):
+  def train(self, train_loader, val_loader, epochs=20, learning_rate=0.001, patience=10, target_val_loss=0.1):
     self.model.train()
     self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-    early_stopping = EarlyStopping(patience=patience)
+    early_stopping = EarlyStopping(patience=patience, target_val_loss=target_val_loss)
     self.init_wandb(epochs, patience, learning_rate)
+    self.wandb.watch(self.model)
+  
     for epoch in range(epochs):
       # Initialize empty numpy arrays for predictions and labels
       all_predictions = np.array([])
@@ -89,7 +90,11 @@ class CNN_Model:
         self.log_metrics(epoch, val_loss, all_labels, all_predictions, all_outputs_proba)
 
         if not early_stopping(epochs, logs={'val_loss': val_loss}): break
-        print(f"[{epoch} Val loss: {val_loss}")
+
+    # Save model to wandb
+    self.model.to_onnx()
+    wandb.save("model.onnx")
+
     if self.wandb is not None:
       wandb.finish()
   
@@ -185,8 +190,6 @@ class CNN_Model:
           , preds=all_predictions
           , class_names=self.class_names
         ),
-        "fpr_hist": wandb.Histogram(np.histogram(fpr)),
-        "tpr_hist": wandb.Histogram(np.histogram(tpr)),
         "roc_auc": roc_auc
       })
 
@@ -232,9 +235,25 @@ class CNN_Model:
     torch.save(self.model.state_dict(), model_path)
     
 
-def load_dataset(dataset_path, transform):
+def load_dataset(dataset_path, transform, batch_size=32):
+  """Loads the dataset with data augmentation for training.
+
+  Args:
+      dataset_path (str): Path to the dataset directory.
+      batch_size (int, optional): Batch size for the data loaders. Defaults to 32.
+
+  Returns:
+      tuple: Tuple containing training, validation, and test data loaders.
+  """
+  # Transoformations for Data augmentation
+  augmentation_transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(p=0.5)
+  ])
+
+  combined_transform = transforms.Compose([transform, augmentation_transform])
+
   # Create the dataset
-  full_dataset = datasets.ImageFolder(root=dataset_path, transform=transform)
+  full_dataset = datasets.ImageFolder(root=dataset_path)
 
   # Get the labels
   labels = np.array([label for _, label in full_dataset])
@@ -248,25 +267,48 @@ def load_dataset(dataset_path, transform):
   test_sampler = SubsetRandomSampler(test_indices)
 
   # Create DataLoaders
-  train_loader = DataLoader(full_dataset, batch_size=32, sampler=train_sampler)
-  val_loader = DataLoader(full_dataset, batch_size=32, sampler=val_sampler)
-  test_loader = DataLoader(full_dataset, batch_size=32, sampler=test_sampler)
+  train_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=train_sampler, transform=combined_transform)
+  val_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=val_sampler, transform=transform)
+  test_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=test_sampler, transform=transform)
   return train_loader, val_loader, test_loader
 
 class EarlyStopping(object):
-  def __init__(self, patience=5):
-    self.patience = patience
-    self.best_val_loss = float('inf')
-    self.counter = 0
+  """Early stopping callback for PyTorch training.
 
-  def __call__(self, epoch, logs):
-    val_loss = logs.get('val_loss')
+  Args:
+      patience (int): Number of epochs to wait for validation loss improvement.
+      target_val_loss (float): Minimum validation loss threshold to achieve.
+      verbose (bool, optional): Print information about stopping the training. Defaults to False.
+  """
+  def __init__(self, patience=10, target_val_loss=float('inf'), verbose=False):
+    self.patience = patience
+    self.target_val_loss = target_val_loss
+    self.verbose = verbose
+    self.counter = 0
+    self.best_val_loss = float('inf')
+
+
+  def __call__(self, val_loss):
+    """
+    Check validation loss and stop training if necessary.
+
+    Args:
+        val_loss (float): Current validation loss.
+
+    Returns:
+        bool: True if training should be stopped, False otherwise.
+    """
+    if val_loss <= self.target_val_loss:  # Check if target threshold is reached
+      self.counter = 0  # Reset counter if target is met
+      return False
+
     if val_loss < self.best_val_loss:
       self.best_val_loss = val_loss
-      self.counter = 0
+      self.counter = 0  # Reset counter on improvement
     else:
       self.counter += 1
       if self.counter >= self.patience:
-        print(f"Early stopping triggered after {self.patience} epochs with no improvement.")
-        return False
-    return True
+        if self.verbose:
+          print(f'Early stopping: validation loss has not improved in {self.patience} epochs')
+        return True
+    return False
