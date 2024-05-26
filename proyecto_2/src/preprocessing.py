@@ -15,16 +15,11 @@ class LbpDescriptor:
     def __init__(self, num_points, radius):
         self.num_points = num_points
         self.radius = radius
+        self.dec_values = 2**num_points
 
-    def describe(self, image, eps=1e-7):
+    def describe(self, image):
         lbp = feature.local_binary_pattern(image, self.num_points, self.radius, method='uniform')
-        (hist, _) = np.histogram(lbp.ravel(),
-                                 bins=np.arange(0, self.num_points + 3),
-                                 range=(0, self.num_points + 2))
-
-        # Normalize the histogram
-        hist = hist.astype("float")
-        hist /= (hist.sum() + eps)
+        (hist, _) = np.histogram(lbp.ravel(), bins=self.dec_values, range=(0, self.dec_values), density=True)
 
         return hist
 

@@ -166,3 +166,5 @@ proyecto_2/data/*/**
 !proyecto_2/data/*/.keep
 proyecto_2/wandb/
 proyecto_2/models/
+!proyecto_2/wandb/.keep
+!proyecto_2/models/.keep
