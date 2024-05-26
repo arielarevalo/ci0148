@@ -90,10 +90,7 @@ class CNN_Model:
         # Log validation and metrics for the current epoch
         self.log_metrics(epoch, val_loss, all_labels, all_predictions, all_outputs_proba)
 
-        if early_stopping(epochs, val_loss): break
-
-    # Save model to wandb
-    self.wandb.log({"_model_state": self.model.state_dict()})
+        if early_stopping(epoch, val_loss): break
 
     if self.wandb is not None:
       wandb.finish()
@@ -294,7 +291,7 @@ class EarlyStopping(object):
     Returns:
         bool: True if training should be stopped, False otherwise.
     """
-    if val_loss <= self.target_val_loss or epochs <= 1:
+    if val_loss <= self.target_val_loss and epochs >= 1:
       if self.verbose:
         print(f'Early stopping: validation loss target of <= {self.target_val_loss:.3f} has been reached: {val_loss:.3f}, stopped at {epochs} epochs.')
       self.counter = 0
