@@ -12,7 +12,7 @@ import numpy as np
 import wandb
 
 class CNN_Model:
-  def __init__(self, num_classes, class_names, project_name="my-awesome-project", freeze_prefix=["conv1", "layer1"]):
+  def __init__(self, num_classes, class_names, project_name="my-awesome-project", freeze_prefix=["conv1", "layer1"], data_preprocss='raw'):
     self.device = torch.device('mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
     self.num_classes = num_classes
     self.class_names = class_names
@@ -20,6 +20,7 @@ class CNN_Model:
     self.freeze_prefix = freeze_prefix
     self.model = self.initialize_model()
     self.criterion = nn.CrossEntropyLoss()
+    self.data_preprocss = data_preprocss
 
   def initialize_model(self):
     model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -152,7 +153,8 @@ class CNN_Model:
           "dataset": "COVID-19 Chest X-Ray Database",
           "learning_rate": learning_rate,
           "epochs": epochs,
-          "patience": patience
+          "patience": patience,
+          "dataset_preprocess": self.data_preprocss
       },
     )
 
@@ -168,6 +170,7 @@ class CNN_Model:
           "optimizer": "Adam",
           "criterion": "Cross entropy loss",
           "dataset": "COVID-19 Chest X-Ray Database",
+          "dataset_preprocess": self.data_preprocss
       },
     )
 
@@ -245,15 +248,8 @@ def load_dataset(dataset_path, transform, batch_size=32):
   Returns:
       tuple: Tuple containing training, validation, and test data loaders.
   """
-  # Transoformations for Data augmentation
-  augmentation_transform = transforms.Compose([
-    transforms.RandomHorizontalFlip(p=0.5)
-  ])
-
-  combined_transform = transforms.Compose([transform, augmentation_transform])
-
   # Create the dataset
-  full_dataset = datasets.ImageFolder(root=dataset_path)
+  full_dataset = datasets.ImageFolder(root=dataset_path, transform=transform)
 
   # Get the labels
   labels = np.array([label for _, label in full_dataset])
@@ -267,9 +263,9 @@ def load_dataset(dataset_path, transform, batch_size=32):
   test_sampler = SubsetRandomSampler(test_indices)
 
   # Create DataLoaders
-  train_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=train_sampler, transform=combined_transform)
-  val_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=val_sampler, transform=transform)
-  test_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=test_sampler, transform=transform)
+  train_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=train_sampler)
+  val_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=val_sampler)
+  test_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=test_sampler)
   return train_loader, val_loader, test_loader
 
 class EarlyStopping(object):
