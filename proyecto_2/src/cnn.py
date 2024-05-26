@@ -36,11 +36,11 @@ class CNN_Model:
     )
     return model.to(self.device)
 
-  def train(self, train_loader, val_loader, epochs=20, learning_rate=0.001, patience=10, target_val_loss=0.1):
+  def train(self, train_loader, val_loader, epochs=20, learning_rate=0.001, patience=10, target_val_loss=0.15):
     self.model.train()
     self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-    early_stopping = EarlyStopping(patience=patience, target_val_loss=target_val_loss)
-    self.init_wandb(epochs, patience, learning_rate)
+    early_stopping = EarlyStopping(patience=patience, target_val_loss=target_val_loss, verbose=True)
+    self.init_wandb(epochs, patience, learning_rate, target_val_loss)
     self.wandb.watch(self.model)
   
     for epoch in range(epochs):
@@ -90,11 +90,10 @@ class CNN_Model:
         # Log validation and metrics for the current epoch
         self.log_metrics(epoch, val_loss, all_labels, all_predictions, all_outputs_proba)
 
-        if not early_stopping(epochs, logs={'val_loss': val_loss}): break
+        if early_stopping(epochs, val_loss): break
 
     # Save model to wandb
-    self.model.to_onnx()
-    wandb.save("model.onnx")
+    self.wandb.log({"_model_state": self.model.state_dict()})
 
     if self.wandb is not None:
       wandb.finish()
@@ -138,7 +137,7 @@ class CNN_Model:
       wandb.finish()
 
   
-  def init_wandb(self, epochs, patience, learning_rate):
+  def init_wandb(self, epochs, patience, learning_rate, target_val_loss):
     self.wandb = wandb_run = wandb.init(
       # set the wandb project where this run will be logged
       project=self.project_name,
@@ -154,6 +153,7 @@ class CNN_Model:
           "learning_rate": learning_rate,
           "epochs": epochs,
           "patience": patience,
+          "target_val_loss": target_val_loss,
           "dataset_preprocess": self.data_preprocss
       },
     )
@@ -235,8 +235,8 @@ class CNN_Model:
     return fpr, tpr, roc_auc
   
   def save_model(self, model_path):
+    self.model.eval()
     torch.save(self.model.state_dict(), model_path)
-    
 
 def load_dataset(dataset_path, transform, batch_size=32):
   """Loads the dataset with data augmentation for training.
@@ -284,7 +284,7 @@ class EarlyStopping(object):
     self.best_val_loss = float('inf')
 
 
-  def __call__(self, val_loss):
+  def __call__(self, epochs, val_loss):
     """
     Check validation loss and stop training if necessary.
 
@@ -294,17 +294,19 @@ class EarlyStopping(object):
     Returns:
         bool: True if training should be stopped, False otherwise.
     """
-    if val_loss <= self.target_val_loss:  # Check if target threshold is reached
-      self.counter = 0  # Reset counter if target is met
-      return False
+    if val_loss <= self.target_val_loss or epochs <= 1:
+      if self.verbose:
+        print(f'Early stopping: validation loss target of <= {self.target_val_loss:.3f} has been reached: {val_loss:.3f}, stopped at {epochs} epochs.')
+      self.counter = 0
+      return True
 
     if val_loss < self.best_val_loss:
       self.best_val_loss = val_loss
-      self.counter = 0  # Reset counter on improvement
+      self.counter = 0
     else:
       self.counter += 1
       if self.counter >= self.patience:
         if self.verbose:
-          print(f'Early stopping: validation loss has not improved in {self.patience} epochs')
+          print(f'Early stopping: validation loss has not improved in {self.patience} epochs, stopped at {epochs} epochs.')
         return True
     return False
