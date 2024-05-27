@@ -2,7 +2,6 @@ import gc
 import cv2
 import json
 import shutil
-import torch
 import numpy as np
 from pathlib import Path
 from skimage import feature
@@ -93,10 +92,9 @@ def build_training_data(image_dir, feature_dir, mapping_file, image_size):
 
             features.extend(class_features)
 
-            # Create one-hot encoded labels for the current class and append them to the labels list
+            # Create a list of class indices for the current class and append them to the labels list
             num_samples = len(class_features)
-            class_labels = np.zeros((num_samples, num_classes), dtype=np.uint8)
-            class_labels[:, class_idx] = 1
+            class_labels = [class_idx] * num_samples
             labels.extend(class_labels)
 
             del class_features, class_labels
