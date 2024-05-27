@@ -37,13 +37,13 @@ class CNN_Model:
     return model.to(self.device)
 
   def train(self, train_loader, val_loader, epochs=20, learning_rate=0.001, patience=10, target_val_loss=0.15):
-    self.model.train()
     self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
     early_stopping = EarlyStopping(patience=patience, target_val_loss=target_val_loss, verbose=True)
     self.init_wandb(epochs, patience, learning_rate, target_val_loss)
     self.wandb.watch(self.model)
   
     for epoch in range(epochs):
+      self.model.train()
       # Initialize empty numpy arrays for predictions and labels
       all_predictions = np.array([])
       all_labels = np.array([])
@@ -64,6 +64,7 @@ class CNN_Model:
         self.optimizer.step()
 
       # Validation phase
+      self.model.eval()
       val_loss = 0.0
       with torch.no_grad():
         for data, label in val_loader:
