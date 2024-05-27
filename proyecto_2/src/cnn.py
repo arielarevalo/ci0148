@@ -12,7 +12,7 @@ import numpy as np
 import wandb
 
 class CNN_Model:
-  def __init__(self, num_classes, class_names, project_name="my-awesome-project", freeze_prefix=["conv1", "layer1"], data_preprocss='raw'):
+  def __init__(self, num_classes, class_names, project_name="my-awesome-project", freeze_prefix=["bn1", "conv1", "layer1"], data_preprocss='raw'):
     self.device = torch.device('mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
     self.num_classes = num_classes
     self.class_names = class_names
@@ -43,13 +43,13 @@ class CNN_Model:
     self.wandb.watch(self.model)
   
     for epoch in range(epochs):
-      self.model.train()
       # Initialize empty numpy arrays for predictions and labels
       all_predictions = np.array([])
       all_labels = np.array([])
       all_outputs_proba = np.empty((0, self.num_classes))
     
       # Training phase
+      self.model.train()
       for data, label in train_loader:
         # Move data and label to device
         data, label = data.to(self.device), label.to(self.device)
@@ -92,6 +92,11 @@ class CNN_Model:
         self.log_metrics(epoch, val_loss, all_labels, all_predictions, all_outputs_proba)
 
         if early_stopping(epoch, val_loss): break
+        if val_loss <= 2.0:
+          self.freeze_prefix = ['conv1', 'bn1', 'layer1', 'layer2', 'layer3', 'layer4']
+          for layer_name, param in self.model.named_parameters():
+            if layer_name.startswith(tuple(self.freeze_prefix)):
+              param.requires_grad = False
 
     if self.wandb is not None:
       wandb.finish()
