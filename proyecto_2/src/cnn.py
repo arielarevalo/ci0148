@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from torchvision import models, datasets, transforms
 from torchvision.models import ResNet50_Weights
 from torch.utils.data import DataLoader
@@ -14,7 +13,8 @@ import wandb
 
 
 class CNN_Model:
-    def __init__(self, num_classes, class_names, project_name="my-awesome-project", freeze_prefix=["conv1", "layer1"]):
+    def __init__(self, num_classes, class_names, project_name="my-awesome-project",
+                 freeze_prefix=["bn1", "conv1", "layer1"], data_preprocss='raw'):
         self.device = torch.device(
             'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
         self.num_classes = num_classes
@@ -23,6 +23,7 @@ class CNN_Model:
         self.freeze_prefix = freeze_prefix
         self.model = self.initialize_model()
         self.criterion = nn.CrossEntropyLoss()
+        self.data_preprocss = data_preprocss
 
     def initialize_model(self):
         model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -38,11 +39,12 @@ class CNN_Model:
         )
         return model.to(self.device)
 
-    def train(self, train_loader, val_loader, epochs=20, patience=3, learning_rate=0.001):
-        self.model.train()
+    def train(self, train_loader, val_loader, epochs=20, learning_rate=0.001, patience=10, target_val_loss=0.15):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        early_stopping = EarlyStopping(patience=patience)
-        self.init_wandb(epochs, patience, learning_rate)
+        early_stopping = EarlyStopping(patience=patience, target_val_loss=target_val_loss, verbose=True)
+        self.init_wandb(epochs, patience, learning_rate, target_val_loss)
+        self.wandb.watch(self.model)
+
         for epoch in range(epochs):
             # Initialize empty numpy arrays for predictions and labels
             all_predictions = np.array([])
@@ -50,6 +52,8 @@ class CNN_Model:
             all_outputs_proba = np.empty((0, self.num_classes))
 
             # Training phase
+            self.model.train()
+            train_loss = 0.0
             for data, label in train_loader:
                 # Move data and label to device
                 data, label = data.to(self.device), label.to(self.device)
@@ -57,13 +61,18 @@ class CNN_Model:
                 # Forward pass, calculate loss
                 output = self.model(data)
                 loss = self.criterion(output, label)
+                train_loss += loss.item()
 
                 # Backpropagation, update weights
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
+            # Calculate average train loss
+            train_loss /= len(train_loader)
+
             # Validation phase
+            self.model.eval()
             val_loss = 0.0
             with torch.no_grad():
                 for data, label in val_loader:
@@ -88,10 +97,16 @@ class CNN_Model:
                 val_loss /= len(val_loader)
 
                 # Log validation and metrics for the current epoch
-                self.log_metrics(epoch, val_loss, all_labels, all_predictions, all_outputs_proba)
+                self.log_metrics(epoch, val_loss, train_loss, all_labels, all_predictions, all_outputs_proba)
 
-                if not early_stopping(epochs, logs={'val_loss': val_loss}): break
-                print(f"[{epoch} Val loss: {val_loss}")
+                if early_stopping(epoch, val_loss):
+                    break
+                elif val_loss <= 2.0:
+                    self.freeze_prefix = ['conv1', 'bn1', 'layer1', 'layer2', 'layer3', 'layer4']
+                    for layer_name, param in self.model.named_parameters():
+                        if layer_name.startswith(tuple(self.freeze_prefix)):
+                            param.requires_grad = False
+
         if self.wandb is not None:
             wandb.finish()
 
@@ -132,7 +147,7 @@ class CNN_Model:
         if self.wandb is not None:
             wandb.finish()
 
-    def init_wandb(self, epochs, patience, learning_rate):
+    def init_wandb(self, epochs, patience, learning_rate, target_val_loss):
         self.wandb = wandb_run = wandb.init(
             # set the wandb project where this run will be logged
             project=self.project_name,
@@ -147,7 +162,9 @@ class CNN_Model:
                 "dataset": "COVID-19 Chest X-Ray Database",
                 "learning_rate": learning_rate,
                 "epochs": epochs,
-                "patience": patience
+                "patience": patience,
+                "target_val_loss": target_val_loss,
+                "dataset_preprocess": self.data_preprocss
             },
         )
 
@@ -163,10 +180,11 @@ class CNN_Model:
                 "optimizer": "Adam",
                 "criterion": "Cross entropy loss",
                 "dataset": "COVID-19 Chest X-Ray Database",
+                "dataset_preprocess": self.data_preprocss
             },
         )
 
-    def log_metrics(self, epoch, val_loss, all_labels, all_predictions, all_outputs_proba):
+    def log_metrics(self, epoch, val_loss, train_loss, all_labels, all_predictions, all_outputs_proba):
         accuracy = accuracy_score(all_labels, all_predictions)
         precision = precision_score(all_labels, all_predictions, average='micro')
         recall = recall_score(all_labels, all_predictions, average='micro')
@@ -177,6 +195,7 @@ class CNN_Model:
         self.wandb.log({
             "epoch": epoch,
             "val_loss": val_loss,
+            "train_loss": train_loss,
             "accuracy": accuracy,
             "precision": precision,
             "recall": recall,
@@ -185,8 +204,6 @@ class CNN_Model:
                 , preds=all_predictions
                 , class_names=self.class_names
             ),
-            "fpr_hist": wandb.Histogram(np.histogram(fpr)),
-            "tpr_hist": wandb.Histogram(np.histogram(tpr)),
             "roc_auc": roc_auc
         })
 
@@ -229,10 +246,20 @@ class CNN_Model:
         return fpr, tpr, roc_auc
 
     def save_model(self, model_path):
+        self.model.eval()
         torch.save(self.model.state_dict(), model_path)
 
 
-def load_dataset(dataset_path, transform):
+def load_dataset(dataset_path, transform, batch_size=32):
+    """Loads the dataset with data augmentation for training.
+
+    Args:
+        dataset_path (str): Path to the dataset directory.
+        batch_size (int, optional): Batch size for the data loaders. Defaults to 32.
+
+    Returns:
+        tuple: Tuple containing training, validation, and test data loaders.
+    """
     # Create the dataset
     full_dataset = datasets.ImageFolder(root=dataset_path, transform=transform)
 
@@ -248,26 +275,53 @@ def load_dataset(dataset_path, transform):
     test_sampler = SubsetRandomSampler(test_indices)
 
     # Create DataLoaders
-    train_loader = DataLoader(full_dataset, batch_size=32, sampler=train_sampler)
-    val_loader = DataLoader(full_dataset, batch_size=32, sampler=val_sampler)
-    test_loader = DataLoader(full_dataset, batch_size=32, sampler=test_sampler)
+    train_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=train_sampler)
+    val_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=val_sampler)
+    test_loader = DataLoader(full_dataset, batch_size=batch_size, sampler=test_sampler)
     return train_loader, val_loader, test_loader
 
 
 class EarlyStopping(object):
-    def __init__(self, patience=5):
-        self.patience = patience
-        self.best_val_loss = float('inf')
-        self.counter = 0
+    """Early stopping callback for PyTorch training.
 
-    def __call__(self, epoch, logs):
-        val_loss = logs.get('val_loss')
+    Args:
+        patience (int): Number of epochs to wait for validation loss improvement.
+        target_val_loss (float): Minimum validation loss threshold to achieve.
+        verbose (bool, optional): Print information about stopping the training. Defaults to False.
+    """
+
+    def __init__(self, patience=10, target_val_loss=float('inf'), verbose=False):
+        self.patience = patience
+        self.target_val_loss = target_val_loss
+        self.verbose = verbose
+        self.counter = 0
+        self.best_val_loss = float('inf')
+
+    def __call__(self, epochs, val_loss):
+        """
+        Check validation loss and stop training if necessary.
+
+        Args:
+            val_loss (float): Current validation loss.
+
+        Returns:
+            bool: True if training should be stopped, False otherwise.
+        """
+        if val_loss <= self.target_val_loss and epochs >= 1:
+            if self.verbose:
+                print(
+                    f'Early stopping: validation loss target of <= {self.target_val_loss:.3f} has been reached: {val_loss:.3f}, stopped at {epochs} epochs.')
+            self.counter = 0
+            return True
+
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
             self.counter = 0
         else:
             self.counter += 1
             if self.counter >= self.patience:
-                print(f"Early stopping triggered after {self.patience} epochs with no improvement.")
-                return False
-        return True
+                if self.verbose:
+                    print(
+                        f'Early stopping: validation loss has not improved in {self.patience} epochs, stopped at {epochs} epochs.')
+                return True
+        return False
