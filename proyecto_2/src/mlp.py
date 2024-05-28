@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data.sampler import SubsetRandomSampler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_curve, roc_auc_score
@@ -10,15 +9,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import label_binarize
 import numpy as np
 import wandb
-
-
-# Loss rate rapidly decreasing observed, added another hidden layer
-# Restructured module to be dynamically resizable to run grid search
-# 50 Epoch grid search gave 0.3 dropout [256, 128]
-# 200 Epoch grid search gave 0.2 dropout [128]
-# Grotesque fluctuation, but at least number go up
-## Probably cause LBP is shit data, might add some other extracted feature
-# Added batch normalization. Training loss went way down, val loss and accuracy stayed the same
 
 
 class MLP(nn.Module):
@@ -77,18 +67,18 @@ class MlpRun:
                          dropout_rate=self.dropout_rate).to(self.device)
 
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
 
-        # Define the CLR scheduler with adjusted parameters for 100 epochs
-        step_size = len(self.train_loader) * 10  # Step size for 10 epochs
-        # self.scheduler = CyclicLR(self.optimizer, base_lr=0.0001, max_lr=0.01, step_size_up=step_size, mode='triangular')
         self.scheduler = None
 
         self.wandb = None
 
     def train(self, epochs):
+        # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=0.01,
+        #                                                      steps_per_epoch=len(self.train_loader), epochs=epochs)
         self.init_wandb(epochs)
 
+        best_accuracy = 0.0
         for epoch in range(epochs):
             # Initialize empty numpy arrays for predictions and labels
             all_predictions = np.array([])
@@ -96,19 +86,19 @@ class MlpRun:
             all_outputs_proba = np.empty((0, self.num_classes))
 
             self.model.train()
-            running_loss = 0.0
+            train_loss = 0.0
             for features, labels in self.train_loader:
                 self.optimizer.zero_grad()
                 outputs = self.model(features)
                 loss = self.criterion(outputs, labels)
                 loss.backward()
                 self.optimizer.step()
-                running_loss += loss.item()
+                train_loss += loss.item()
 
-                # if self.scheduler is not None:
-                #     self.scheduler.step()
+                if self.scheduler is not None:
+                    self.scheduler.step()
 
-            print(f"[{epoch} Training loss: {running_loss}")
+            train_loss /= len(self.train_loader)
 
             # Validation step after training
             self.model.eval()
@@ -133,8 +123,14 @@ class MlpRun:
                 val_loss /= len(self.val_loader)
 
             # Log validation and metrics for the current epoch
-            self.log_metrics(epoch, val_loss, all_labels, all_predictions, all_outputs_proba)
+            accuracy = self.log_metrics(train_loss, val_loss, all_labels, all_predictions, all_outputs_proba) * 100
             print(f"[{epoch} Val loss: {val_loss}")
+
+            # Checkpointing
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                self.save_model(f"./models/{self.wandb.name}_mlp-model_{best_accuracy:.0f}.pth")
+                print(f'New best model saved with accuracy: {best_accuracy:.2f}%')
 
         if self.wandb is not None:
             wandb.finish()
@@ -176,19 +172,21 @@ class MlpRun:
         if self.wandb is not None:
             wandb.finish()
 
-    def log_metrics(self, epoch, val_loss, all_labels, all_predictions, all_outputs_proba):
+    def log_metrics(self, train_loss, val_loss, all_labels, all_predictions, all_outputs_proba):
         accuracy = accuracy_score(all_labels, all_predictions)
         precision = precision_score(all_labels, all_predictions, average='micro')
         recall = recall_score(all_labels, all_predictions, average='micro')
-        all_labels_binary = label_binarize(all_labels, classes=range(self.num_classes))
+        # all_labels_binary = label_binarize(all_labels, classes=range(self.num_classes))
         #fpr, tpr, roc_auc = self.calculate_roc(all_labels_binary, all_outputs_proba)
 
         # Log to wandb
         self.wandb.log({
+            "train_loss": train_loss,
             "val_loss": val_loss,
             "accuracy": accuracy,
             "precision": precision,
             "recall": recall,
+            "learning_rate": self.optimizer.param_groups[0]['lr'],
             "confusion_matrix": wandb.plot.confusion_matrix(
                 y_true=all_labels, preds=all_predictions, class_names=self.class_names
             ),
@@ -196,6 +194,8 @@ class MlpRun:
             # "tpr_hist": wandb.Histogram(np.histogram(tpr)),
             # "roc_auc": roc_auc
         })
+
+        return accuracy
 
     def log_test_metrics(self, loss, all_labels, all_predictions, all_outputs_proba):
         accuracy = accuracy_score(all_labels, all_predictions)
@@ -262,9 +262,9 @@ class MlpRun:
         test_sampler = SubsetRandomSampler(test_indices)
 
         # Create DataLoaders
-        train_loader = DataLoader(full_dataset, batch_size=32, sampler=train_sampler)
-        val_loader = DataLoader(full_dataset, batch_size=32, sampler=val_sampler)
-        test_loader = DataLoader(full_dataset, batch_size=32, sampler=test_sampler)
+        train_loader = DataLoader(full_dataset, batch_size=self.batch_size, sampler=train_sampler)
+        val_loader = DataLoader(full_dataset, batch_size=self.batch_size, sampler=val_sampler)
+        test_loader = DataLoader(full_dataset, batch_size=self.batch_size, sampler=test_sampler)
         return train_loader, val_loader, test_loader
 
     def init_wandb(self, epochs):
@@ -273,12 +273,14 @@ class MlpRun:
             entity="university-of-costa-rica",
             config={
                 "architecture": "MLP",
+                "features": "LBP",
+                "activation_function": "ReLU",
                 "optimizer": self.optimizer.__class__.__name__,
                 "criterion": self.criterion.__class__.__name__,
-                "scheduler": self.scheduler.__class__.__name__ if self.scheduler is not None else None,
+                "scheduler":  self.scheduler.__class__.__name__ if self.scheduler is not None else None,
                 "dataset": "COVID-19 Chest X-Ray Database",
                 "batch_size": self.batch_size,
-                "learning_rate": self.learning_rate,
+                "learning_rate": self.optimizer.param_groups[0]['lr'],
                 "dropout_rate": self.dropout_rate,
                 "hidden_sizes": self.hidden_sizes,
                 "epochs": epochs,
@@ -300,24 +302,3 @@ class MlpRun:
 
     def save_model(self, model_path):
         torch.save(self.model, model_path)
-
-
-def save_checkpoint(model, optimizer, epoch, loss, file_path):
-    checkpoint = {
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'epoch': epoch,
-        'loss': loss,
-    }
-    torch.save(checkpoint, file_path)
-    print(f"Checkpoint saved at {file_path}")
-
-
-def load_checkpoint(file_path, model, optimizer):
-    checkpoint = torch.load(file_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    print(f"Checkpoint loaded from {file_path} (epoch {epoch}, loss {loss})")
-    return model, optimizer, epoch, loss
