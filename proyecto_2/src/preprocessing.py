@@ -2,7 +2,6 @@ import gc
 import cv2
 import json
 import shutil
-import torch
 import numpy as np
 from pathlib import Path
 from skimage import feature
@@ -15,16 +14,11 @@ class LbpDescriptor:
     def __init__(self, num_points, radius):
         self.num_points = num_points
         self.radius = radius
+        self.dec_values = 2**num_points
 
-    def describe(self, image, eps=1e-7):
+    def describe(self, image):
         lbp = feature.local_binary_pattern(image, self.num_points, self.radius, method='uniform')
-        (hist, _) = np.histogram(lbp.ravel(),
-                                 bins=np.arange(0, self.num_points + 3),
-                                 range=(0, self.num_points + 2))
-
-        # Normalize the histogram
-        hist = hist.astype("float")
-        hist /= (hist.sum() + eps)
+        (hist, _) = np.histogram(lbp.ravel(), bins=self.dec_values, range=(0, self.dec_values), density=True)
 
         return hist
 
@@ -98,10 +92,9 @@ def build_training_data(image_dir, feature_dir, mapping_file, image_size):
 
             features.extend(class_features)
 
-            # Create one-hot encoded labels for the current class and append them to the labels list
+            # Create a list of class indices for the current class and append them to the labels list
             num_samples = len(class_features)
-            class_labels = np.zeros((num_samples, num_classes), dtype=np.uint8)
-            class_labels[:, class_idx] = 1
+            class_labels = [class_idx] * num_samples
             labels.extend(class_labels)
 
             del class_features, class_labels
