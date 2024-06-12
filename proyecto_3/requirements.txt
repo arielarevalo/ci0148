@@ -8,3 +8,5 @@ matplotlib==3.7.5
 tqdm==4.66.4
 torch==2.3.0
 torchvision==0.18.0
+skorch==0.15.0
+wandb==0.17.0
