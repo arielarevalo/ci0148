@@ -32,15 +32,9 @@ class model():
                 mask = self.hidden_layers[i].dropout(self.dropout_perc)
                 data *= mask
                 self.dropout_masks.append(mask)
-                # print(f"Training layer#{i}:\n", data)
 
-        # print("Output before loss\n")
-        # print(data)
         o = self.loss_layer.forward(data)
-        # print("Output after loss\n")
-        # print(o)
         loss = self.loss_layer.loss(y)
-        #print(loss, o)
         return o, loss
 
     def predict(self, x):
