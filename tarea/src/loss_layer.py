@@ -43,9 +43,9 @@ class loss_layer(op):
     #alpha is used as reward in some reinforcement learning envs
     def backward(self, y, rewards=None):
         if rewards is not None:
-            self.grads = (self.o - y) * rewards
+            self.grads = 2 * (self.o - y) * rewards
         else:
-            self.grads = self.o - y
+            self.grads = 2 * (self.o - y)
 
     # MSE loss function
     def loss(self, y):
