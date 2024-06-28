@@ -17,7 +17,7 @@ class LbpDescriptor:
         self.dec_values = 2**num_points
 
     def describe(self, image):
-        lbp = feature.local_binary_pattern(image, self.num_points, self.radius, method='uniform')
+        lbp = feature.local_binary_pattern(image, self.num_points, self.radius)
         (hist, _) = np.histogram(lbp.ravel(), bins=self.dec_values, range=(0, self.dec_values), density=True)
 
         return hist
