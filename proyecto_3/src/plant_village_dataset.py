@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 class PlantVillageDataset(ImageFolder):
     initial_transform = transforms.Compose([
-        transforms.Resize((128, 128)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
 
@@ -24,7 +24,7 @@ class PlantVillageDataset(ImageFolder):
         nb_samples = 0
 
         # Iterate over the dataset
-        for data, _ in tqdm(dataloader, desc=' - Calculating mean and standard deviation'):
+        for data, _ in tqdm(dataloader, desc=' - Calculating mean and standard deviation', unit='batch'):
             batch_samples = data.size(0)  # get the batch size
             data = data.view(batch_samples, data.size(1),
                              -1)  # flatten the image pixels except for batch and channel dimensions
