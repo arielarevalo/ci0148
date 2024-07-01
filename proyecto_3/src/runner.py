@@ -7,43 +7,13 @@ from tqdm.notebook import tqdm, trange
 
 
 class Runner:
-    def __init__(self, name, model, optimizer, criterion, dataset, num_folds=5, batch_size=128, device='cpu'):
+    def __init__(self, name, model, optimizer, criterion, device='cpu'):
         self.name = name
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
-        self.dataset = dataset
-        self.num_folds = num_folds
-        self.batch_size = batch_size
         self.device = device
         self.model.to(self.device)
-
-    def cross_validate(self):
-        kf = KFold(n_splits=self.num_folds, shuffle=True)
-        fold_results = []
-        train_results = []
-
-        for fold, (train_idx, test_idx) in enumerate(kf.split(self.dataset)):
-            print(f'Fold {fold + 1}/{self.num_folds}')
-            train_subset = Subset(self.dataset, train_idx)
-            test_subset = Subset(self.dataset, test_idx)
-            train_loader = DataLoader(train_subset, batch_size=self.batch_size, shuffle=True)
-            test_loader = DataLoader(test_subset, batch_size=self.batch_size, shuffle=False)
-
-            # Reinitialize the model and optimizer for each fold
-            self.model.apply(self._reset_weights)
-            self.optimizer = optim.Adam(self.model.parameters(), lr=self.optimizer.defaults['lr'])
-
-            train_accuracy, train_loss = self._train_model(train_loader)
-            fold_results.append((train_loss, train_accuracy))
-            test_accuracy, test_loss = self.test(test_loader)
-            fold_results.append((test_loss, test_accuracy))
-            print(f'Fold {fold + 1} - Loss: {test_loss:.4f}, Accuracy: {test_accuracy:.4f}')
-
-        avg_loss = np.mean([result[0] for result in fold_results])
-        avg_accuracy = np.mean([result[1] for result in fold_results])
-        print(f'Cross-Validation - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}')
-        print(f'Training - Avg Loss: {avg_loss:.4f}, Avg Accuracy: {avg_accuracy:.4f}')
 
     def train(self, train_loader, val_loader, num_epochs=5, patience=5, val_loss_target=0.05):
         best_val_loss = float('inf')
@@ -59,7 +29,7 @@ class Runner:
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 epochs_without_improvement = 0
-                self.save_model(f'models/{self.name}.pth')
+                self._save_model(f'models/{self.name}.pth')
             else:
                 epochs_without_improvement += 1
 
@@ -72,7 +42,7 @@ class Runner:
         return train_accuracy, train_loss, val_loss
 
     def test(self, test_loader):
-        self.load_model(f'models/{self.name}.pth')
+        self._load_model(f'models/{self.name}.pth')
         self.model.eval()
 
         test_loss = 0.0
@@ -95,17 +65,6 @@ class Runner:
         print(f'Test accuracy: {accuracy:.4f}, Test Loss: {avg_loss:.4f}')
 
         return accuracy, avg_loss
-
-    def save_model(self, path):
-        torch.save(self.model, path)
-
-    def load_model(self, path):
-        self.model = torch.load(path)
-        self.model.to(self.device)
-
-    def _reset_weights(self, m):
-        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            m.reset_parameters()
 
     def _train_model(self, train_loader):
         self.model.train()
@@ -142,3 +101,14 @@ class Runner:
 
         avg_loss = val_loss / len(val_loader)
         return avg_loss
+
+    def _save_model(self, path):
+        torch.save(self.model, path)
+
+    def _load_model(self, path):
+        self.model = torch.load(path)
+        self.model.to(self.device)
+
+    def _reset_weights(self, m):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            m.reset_parameters()
