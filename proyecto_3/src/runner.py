@@ -1,8 +1,5 @@
 import torch
-from torch.utils.data import DataLoader, Subset
-from torch import nn, optim
-import numpy as np
-from sklearn.model_selection import KFold
+from torch import nn
 from tqdm.notebook import tqdm, trange
 
 
