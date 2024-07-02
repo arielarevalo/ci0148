@@ -13,6 +13,7 @@ class PlantVillageDataset(ImageFolder):
 
     def __init__(self, root):
         print('Loading Plant Village')
+        print(ImageFolder)
         super(PlantVillageDataset, self).__init__(root, transform=self.initial_transform)
 
         print(' - Normalizing dataset')
