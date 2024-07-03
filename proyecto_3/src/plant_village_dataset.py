@@ -13,11 +13,10 @@ class PlantVillageDataset(ImageFolder):
 
     def __init__(self, root):
         print('Loading Plant Village')
-        print(ImageFolder)
         super(PlantVillageDataset, self).__init__(root, transform=self.initial_transform)
 
         print(' - Normalizing dataset')
-        dataloader = DataLoader(self, batch_size=128, shuffle=False, num_workers=4)
+        dataloader = DataLoader(self, batch_size=64, shuffle=False, num_workers=16)
 
         # Initialize variables to store the sum of means and stds
         mean = torch.zeros(3)  # for RGB channels
@@ -46,3 +45,6 @@ class PlantVillageDataset(ImageFolder):
         std_str = '[' + ', '.join([f'{s:.4f}' for s in std.tolist()]) + ']'
         print(f" - Normalized dataset:\n  - Mean: {mean_str}\n  - Standard deviation: {std_str}")
         # mean=[0.4673, 0.4897, 0.4125], std=[0.1670, 0.1398, 0.1845]
+
+    def get_labels(self):
+        return [label for _, label in self.imgs]
