@@ -8,6 +8,7 @@ matplotlib==3.7.5
 tqdm==4.66.4
 torch==2.3.1
 torchvision==0.18.1
+torchinfo==1.8.0
 tensorboard==2.17.0
 skorch==0.15.0
 wandb==0.17.0
