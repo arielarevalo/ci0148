@@ -13,9 +13,11 @@ class Runner():
         self.model.to(self.device)
 
     def train(self, train_loader, val_loader, num_epochs=5, patience=5, val_loss_target=0.05):
-        best_val_loss = float('inf')
-        epochs_without_improvement = 0
+        train_loss = float('inf')
         val_loss = float('inf')
+        best_val_loss = float('inf')
+
+        epochs_without_improvement = 0
 
         for epoch in trange(num_epochs, desc='Training', unit=' epoch'):
             train_loss = self._train_model(train_loader)
@@ -72,20 +74,24 @@ class Runner():
             loss.backward()
             self.optimizer.step()
 
+            running_loss += loss.item()
+
         avg_loss = running_loss / len(train_loader)
         return avg_loss
 
     def _validate_model(self, val_loader):
         self.model.eval()
-        val_loss = 0.0
+        running_loss = 0.0
         with torch.no_grad():
             for inputs, targets in tqdm(val_loader, leave=False, desc='Validating', unit='batch'):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
+
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
-                val_loss += loss.item()
 
-        avg_loss = val_loss / len(val_loader)
+                running_loss += loss.item()
+
+        avg_loss = running_loss / len(val_loader)
         return avg_loss
 
     def _save_model(self, path):
