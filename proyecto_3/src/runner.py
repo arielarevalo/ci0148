@@ -8,10 +8,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_curve, roc_auc_score, confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_curve, roc_auc_score, classification_report
 from sklearn.preprocessing import label_binarize
 
 from IPython.display import display
+
+
+def _get_num_classes_from_loader(test_loader):
+    all_labels = []
+    for _, labels in test_loader:
+        all_labels.extend(labels.numpy())
+    num_classes = len(set(all_labels))
+    return num_classes
+
 
 class Runner:
     def __init__(self, name, model, optimizer, criterion, device='cpu'):
@@ -47,11 +56,11 @@ class Runner:
                 break
         return train_loss, val_loss
 
-    def test(self, test_loader):
+    def test(self, test_loader, idx_to_class):
         self._load_model(f'models/{self.name}.pth')
         self.model.eval()
 
-        num_classes = self._get_num_classes_from_loader(test_loader)
+        num_classes = len(idx_to_class)
 
         loss = 0.0
         # Initialize empty numpy arrays for predictions and labels
@@ -78,14 +87,15 @@ class Runner:
             loss /= len(test_loader)
 
             # Log validation and metrics for the current epoch
-            self.log_test_metrics(loss, all_labels, all_predictions, all_outputs_proba)
+            self.log_test_metrics(loss, all_labels, all_predictions, all_outputs_proba, idx_to_class)
 
-    def log_test_metrics(self, loss, all_labels, all_predictions, all_outputs_proba):
+    def log_test_metrics(self, loss, all_labels, all_predictions, all_outputs_proba, idx_to_class):
+        num_classes = len(idx_to_class)
         accuracy = accuracy_score(all_labels, all_predictions)
         precision = precision_score(all_labels, all_predictions, average='weighted')
         recall = recall_score(all_labels, all_predictions, average='weighted')
-        all_labels_binary = label_binarize(all_labels, classes=range(self.num_classes))
-        fpr, tpr, roc_auc = self.calculate_roc(all_labels_binary, all_outputs_proba)
+        all_labels_binary = label_binarize(all_labels, classes=range(num_classes))
+        fpr, tpr, roc_auc = self.calculate_roc(all_labels_binary, all_outputs_proba, num_classes)
 
         # Display metrics in a table
         metrics_df = pd.DataFrame({
@@ -93,45 +103,32 @@ class Runner:
             'Value': [loss, accuracy, precision, recall]
         })
 
-        display(metrics_df)
+        display(metrics_df.style.hide(axis='index'))
 
-        # Display ROC AUC for each class
-        auc_df = pd.DataFrame({
-            'Class': list(range(self.num_classes)),
-            'AUC': [roc_auc[i] for i in range(self.num_classes)]
-        })
-
-        display(auc_df)
-
-        # Plot ROC Curves
+        # Plot ROC Curves with Class Labels
         plt.figure(figsize=(10, 8))
-        for i in range(self.num_classes):
-            plt.plot(fpr[i], tpr[i], label=f'Class {i} (AUC = {roc_auc[i]:.2f})')
+        for i in range(num_classes):
+            plt.plot(fpr[i], tpr[i], label=f'{idx_to_class[i]} (AUC = {roc_auc[i]:.2f})')
         plt.plot([0, 1], [0, 1], 'k--')
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.title('ROC Curve')
-        plt.legend(loc='lower right')
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), borderaxespad=0.)
         plt.show()
 
-        # Confusion Matrix
-        conf_matrix = confusion_matrix(all_labels, all_predictions)
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=range(self.num_classes),
-                    yticklabels=range(self.num_classes))
-        plt.xlabel('Predicted Labels')
-        plt.ylabel('True Labels')
-        plt.title('Confusion Matrix')
-        plt.show()
+        # # Classification Report with Class Labels
+        # class_report = classification_report(all_labels, all_predictions,
+        #                                      target_names=[idx_to_class[i] for i in range(num_classes)])
+        # print("Classification Report:\n", class_report)
 
-    def calculate_roc(self, all_labels_binary, all_outputs_proba):
+    def calculate_roc(self, all_labels_binary, all_outputs_proba, num_classes):
         fpr = dict()
         tpr = dict()
         roc_auc = dict()
         # Calculate ROC curve and ROC area for each class
-        for i in range(self.num_classes):
+        for i in range(num_classes):
             fpr[i], tpr[i], _ = roc_curve(all_labels_binary[:, i], all_outputs_proba[:, i])
             roc_auc[i] = roc_auc_score(all_labels_binary[:, i], all_outputs_proba[:, i])
         return fpr, tpr, roc_auc
@@ -167,13 +164,6 @@ class Runner:
 
         avg_loss = running_loss / len(val_loader)
         return avg_loss
-
-    def _get_num_classes_from_loader(test_loader):
-        all_labels = []
-        for _, labels in test_loader:
-            all_labels.extend(labels.numpy())
-        num_classes = len(set(all_labels))
-        return num_classes
 
     def _save_model(self, path):
         torch.save(self.model, path)
