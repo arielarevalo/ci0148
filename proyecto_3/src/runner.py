@@ -166,10 +166,10 @@ class Runner:
         return avg_loss
 
     def _save_model(self, path):
-        torch.save(self.model, path)
+        torch.save(self.model.state_dict(), path)
 
     def _load_model(self, path):
-        self.model = torch.load(path)
+        self.model.load_state_dict(torch.load(path))
         self.model.to(self.device)
 
     def _reset_weights(self, m):
