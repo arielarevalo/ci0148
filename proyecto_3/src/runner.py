@@ -3,7 +3,7 @@ from torch import nn
 from tqdm.notebook import tqdm, trange
 
 
-class Runner:
+class Runner():
     def __init__(self, name, model, optimizer, criterion, device='cpu'):
         self.name = name
         self.model = model
@@ -13,14 +13,14 @@ class Runner:
         self.model.to(self.device)
 
     def train(self, train_loader, val_loader, num_epochs=5, patience=5, val_loss_target=0.05):
-        best_val_loss = float('inf')
-        epochs_without_improvement = 0
-        val_loss = float('inf')
-        train_accuracy = float('inf')
         train_loss = float('inf')
+        val_loss = float('inf')
+        best_val_loss = float('inf')
+
+        epochs_without_improvement = 0
 
         for epoch in trange(num_epochs, desc='Training', unit=' epoch'):
-            train_accuracy, train_loss = self._train_model(train_loader)
+            train_loss = self._train_model(train_loader)
             val_loss = self._validate_model(val_loader)
 
             if val_loss < best_val_loss:
@@ -30,13 +30,12 @@ class Runner:
             else:
                 epochs_without_improvement += 1
 
-            print(f'Epoch {epoch + 1}/{num_epochs} - Train accuracy: {train_accuracy:.4f},'
-                  f' Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}')
+            print(f'Epoch {epoch + 1}/{num_epochs} - Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}')
 
             if val_loss <= val_loss_target or epochs_without_improvement >= patience:
                 print(f'Early stopping at epoch {epoch + 1}')
                 break
-        return train_accuracy, train_loss, val_loss
+        return train_loss, val_loss
 
     def test(self, test_loader):
         self._load_model(f'models/{self.name}.pth')
@@ -66,8 +65,6 @@ class Runner:
     def _train_model(self, train_loader):
         self.model.train()
         running_loss = 0.0
-        correct = 0
-        total = 0
         for inputs, targets in tqdm(train_loader, leave=False, desc='Training', unit='batch'):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
 
@@ -78,25 +75,23 @@ class Runner:
             self.optimizer.step()
 
             running_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            total += targets.size(0)
-            correct += (predicted == targets).sum().item()
 
-        accuracy = correct / total
         avg_loss = running_loss / len(train_loader)
-        return accuracy, avg_loss
+        return avg_loss
 
     def _validate_model(self, val_loader):
         self.model.eval()
-        val_loss = 0.0
+        running_loss = 0.0
         with torch.no_grad():
             for inputs, targets in tqdm(val_loader, leave=False, desc='Validating', unit='batch'):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
+
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
-                val_loss += loss.item()
 
-        avg_loss = val_loss / len(val_loader)
+                running_loss += loss.item()
+
+        avg_loss = running_loss / len(val_loader)
         return avg_loss
 
     def _save_model(self, path):
