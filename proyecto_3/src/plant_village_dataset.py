@@ -16,7 +16,7 @@ class PlantVillageDataset(ImageFolder):
         super(PlantVillageDataset, self).__init__(root, transform=self.initial_transform)
 
         print(' - Normalizing dataset')
-        dataloader = DataLoader(self, batch_size=64, shuffle=False, num_workers=16)
+        dataloader = DataLoader(self, batch_size=64, shuffle=False, num_workers=12)
 
         # Initialize variables to store the sum of means and stds
         mean = torch.zeros(3)  # for RGB channels

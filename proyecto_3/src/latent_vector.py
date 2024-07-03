@@ -1,13 +1,8 @@
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.utils.data as data
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
+
 
 def visualize_latent_space(encoder, dataloader, device, use_tsne=False):
     encoder.eval()
@@ -17,7 +12,7 @@ def visualize_latent_space(encoder, dataloader, device, use_tsne=False):
     with torch.no_grad():
         for images, labels in dataloader:
             images = images.to(device)
-            latents = encoder.extract_latent(images)
+            latents, _ = encoder.forward(images)
             all_latents.append(latents.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
 
@@ -25,18 +20,20 @@ def visualize_latent_space(encoder, dataloader, device, use_tsne=False):
     all_labels = np.concatenate(all_labels, axis=0)
 
     if use_tsne:
-        reducer = TSNE(n_components=2)
+        reducer = TSNE(n_components=3)
     else:
-        reducer = PCA(n_components=2)
+        reducer = PCA(n_components=3)
 
     reduced_latents = reducer.fit_transform(all_latents)
 
     return reduced_latents, all_labels
 
-def log_to_tensorboard(writer, reduced_latents, labels):
-    fig, ax = plt.subplots()
-    scatter = ax.scatter(reduced_latents[:, 0], reduced_latents[:, 1], c=labels, cmap='viridis', alpha=0.5)
-    legend1 = ax.legend(*scatter.legend_elements(), title="Classes")
-    ax.add_artist(legend1)
-    writer.add_figure('Latent Space Visualization', fig)
+
+def create_metadata_list(labels, idx_to_class):
+    metadata = [idx_to_class[label] for label in labels]
+    return metadata
+
+
+def log_embeddings(writer, embeddings, metadata):
+    writer.add_embedding(mat=embeddings, metadata=metadata)
     writer.close()
