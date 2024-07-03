@@ -9,7 +9,7 @@ class EncoderMLP(nn.Module):
         self.mlp = mlp
 
     def forward(self, x):
-        x = self.encoder(x)
+        x, _ = self.encoder(x)
         x = self.mlp(x)
         return x
 
