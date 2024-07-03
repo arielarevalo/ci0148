@@ -1,9 +1,28 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 from tqdm.notebook import tqdm, trange
 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-class Runner():
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_curve, roc_auc_score, classification_report
+from sklearn.preprocessing import label_binarize
+
+from IPython.display import display
+
+
+def _get_num_classes_from_loader(test_loader):
+    all_labels = []
+    for _, labels in test_loader:
+        all_labels.extend(labels.numpy())
+    num_classes = len(set(all_labels))
+    return num_classes
+
+
+class Runner:
     def __init__(self, name, model, optimizer, criterion, device='cpu'):
         self.name = name
         self.model = model
@@ -37,30 +56,82 @@ class Runner():
                 break
         return train_loss, val_loss
 
-    def test(self, test_loader):
+    def test(self, test_loader, idx_to_class):
         self._load_model(f'models/{self.name}.pth')
         self.model.eval()
 
-        test_loss = 0.0
-        correct = 0
-        total = 0
+        num_classes = len(idx_to_class)
+
+        loss = 0.0
+        # Initialize empty numpy arrays for predictions and labels
+        all_predictions = np.array([])
+        all_labels = np.array([])
+        all_outputs_proba = np.empty((0, num_classes))
+
         with torch.no_grad():
             for inputs, targets in tqdm(test_loader, desc='Testing', unit='batch'):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
                 outputs = self.model(inputs)
-                loss = self.criterion(outputs, targets)
-                test_loss += loss.item()
+                loss += self.criterion(outputs, targets).item()
 
-                _, predicted = torch.max(outputs.data, 1)
-                total += targets.size(0)
-                correct += (predicted == targets).sum().item()
+                # Apply softmax to get probabilities
+                probabilities = F.softmax(outputs, dim=1)
+                probabilities = probabilities.unsqueeze(0) if probabilities.ndim == 1 else probabilities
 
-        accuracy = correct / total
-        avg_loss = test_loss / len(test_loader)
+                # Concatenate predictions and labels for the current batch
+                all_predictions = np.concatenate((all_predictions, outputs.argmax(dim=1).cpu().numpy()))
+                all_labels = np.concatenate((all_labels, targets.cpu().numpy()))
+                all_outputs_proba = np.concatenate((all_outputs_proba, probabilities.cpu().numpy()), axis=0)
 
-        print(f'Test accuracy: {accuracy:.4f}, Test Loss: {avg_loss:.4f}')
+            # Calculate average validation loss
+            loss /= len(test_loader)
 
-        return accuracy, avg_loss
+            # Log validation and metrics for the current epoch
+            self.log_test_metrics(loss, all_labels, all_predictions, all_outputs_proba, idx_to_class)
+
+    def log_test_metrics(self, loss, all_labels, all_predictions, all_outputs_proba, idx_to_class):
+        num_classes = len(idx_to_class)
+        accuracy = accuracy_score(all_labels, all_predictions)
+        precision = precision_score(all_labels, all_predictions, average='weighted')
+        recall = recall_score(all_labels, all_predictions, average='weighted')
+        all_labels_binary = label_binarize(all_labels, classes=range(num_classes))
+        fpr, tpr, roc_auc = self.calculate_roc(all_labels_binary, all_outputs_proba, num_classes)
+
+        # Display metrics in a table
+        metrics_df = pd.DataFrame({
+            'Metric': ['Loss', 'Accuracy', 'Precision', 'Recall'],
+            'Value': [loss, accuracy, precision, recall]
+        })
+
+        display(metrics_df.style.hide(axis='index'))
+
+        # Plot ROC Curves with Class Labels
+        plt.figure(figsize=(10, 8))
+        for i in range(num_classes):
+            plt.plot(fpr[i], tpr[i], label=f'{idx_to_class[i]} (AUC = {roc_auc[i]:.2f})')
+        plt.plot([0, 1], [0, 1], 'k--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve')
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), borderaxespad=0.)
+        plt.show()
+
+        # # Classification Report with Class Labels
+        # class_report = classification_report(all_labels, all_predictions,
+        #                                      target_names=[idx_to_class[i] for i in range(num_classes)])
+        # print("Classification Report:\n", class_report)
+
+    def calculate_roc(self, all_labels_binary, all_outputs_proba, num_classes):
+        fpr = dict()
+        tpr = dict()
+        roc_auc = dict()
+        # Calculate ROC curve and ROC area for each class
+        for i in range(num_classes):
+            fpr[i], tpr[i], _ = roc_curve(all_labels_binary[:, i], all_outputs_proba[:, i])
+            roc_auc[i] = roc_auc_score(all_labels_binary[:, i], all_outputs_proba[:, i])
+        return fpr, tpr, roc_auc
 
     def _train_model(self, train_loader):
         self.model.train()
