@@ -17,7 +17,7 @@ def visualize_latent_space(encoder, dataloader, device, use_tsne=False):
     with torch.no_grad():
         for images, labels in dataloader:
             images = images.to(device)
-            latents = encoder.extract_latent(images)
+            latents, _ = encoder.forward(images)
             all_latents.append(latents.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
 
